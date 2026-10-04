@@ -37,5 +37,4 @@ def build_xgboost(seed: int = SEED) -> XGBClassifier:
         subsample=0.8,
         colsample_bytree=0.8,
         random_state=seed,
-        use_label_encoder=False,
     )
