@@ -18,11 +18,44 @@ stated sample count, signal dimensions, and class balance, but it is not the
 original Stanford data and should not be described as a direct reproduction
 on that data.
 
+## Setup and run
+
+Use Python 3.10 or newer, then run these commands from the repository root
+(PowerShell on Windows):
+
+```powershell
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python -m scripts.run_final_comparison --synthetic-seed 42 --seed 0
+python -m scripts.make_writeup
+```
+
+The comparison command generates its 527-sample dataset in memory; it does not
+require the original Stanford recordings or the local `.mat` files. It writes
+the shared-split results to `results/final_comparison.csv` and
+`results/final_comparison.json`. The report command generates the two-page
+`docs/writeup.pdf` from those saved results.
+
+To prepare the standalone HIKNet live demo, generate local synthetic `.mat`
+files, train a checkpoint, then run predictions:
+
+```powershell
+python -m scripts.make_mock_data --seed 0
+python -m scripts.train_hiknet --seed 0
+python -m scripts.demo --checkpoint checkpoints/hiknet.pt
+```
+
+The checkpoint is local and ignored by Git. The demo illustrates inference on
+the mock recordings; it is not an additional final-comparison evaluation.
+
 ## Datasets
 
 ### Synthetic kinematic dataset
 
-The current files are `data/data.mat` and `data/labels.mat`.
+Optional local MATLAB files are `data/data.mat` and `data/labels.mat`.
+They are ignored by Git and are not required for the documented final
+comparison command.
 
 - 527 samples
 - 6 kinematic channels per sample
@@ -38,8 +71,8 @@ impact-like and false-positive-like signals. A small number of samples are
 given a signal from the opposite class to create overlap. These are
 simulation assumptions, not measurements from Stanford athletes.
 
-The current `.mat` files match the output of this generator with seed 0.
-To regenerate them, run:
+The local `.mat` files used by standalone scripts match the output of this
+generator with seed 0. To regenerate them, run:
 
 ```bash
 python -m scripts.make_mock_data --seed 0
@@ -84,7 +117,8 @@ data. XGBoost uses the extracted features without this scaler.
 Run `scripts/run_final_comparison.py` to perform the final comparison.
 
 - Outer split: stratified 70% training and 30% evaluation
-- Default random seed: 0
+- Final comparison synthetic-data seed: 42
+- Outer split random seed: 0
 - Training examples: 369
 - Held-out evaluation examples: 158, with 79 examples from each class
 - The same outer training and evaluation examples are used for all four models
@@ -93,9 +127,14 @@ Run `scripts/run_final_comparison.py` to perform the final comparison.
   set
 - The JSON output records the sample indices for both sets
 
-The neural networks train on the remaining 313 training examples after the
-validation split. SVM and XGBoost train on all 369 outer training examples.
-SVM and XGBoost both use the same 176 features.
+For the final comparison, the synthetic generator is run in memory with seed
+42 instead of reusing the seed-0 `.mat` files used by earlier tuning work. The
+sample identities are therefore new, while the generator and its assumptions
+remain the same. This avoids direct sample reuse; it does not turn synthetic
+data into independent real-world validation. The neural networks fit on 313
+examples and use 56 training-only examples for early stopping. SVM and XGBoost
+train on all 369 outer training examples. SVM and XGBoost both use the same
+176 features.
 
 This reported comparison uses one random split. Results can vary with a
 different seed and should be treated as a single-run comparison, not as a
@@ -129,34 +168,37 @@ Metrics are computed in `src/metrics.py`.
 
 ## Final comparison results
 
-Results below are from the synthetic dataset, seed 0, and the shared
-stratified 70/30 holdout split.
+Results below are from a fresh synthetic generator run (seed 42) and the
+shared stratified 70/30 holdout split (split seed 0).
 
 | Model | Dataset | Split | Accuracy | Precision | Specificity | Sensitivity | ROC-AUC | PR-AUC |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| HIKNet | Synthetic, 527 samples | Stratified 70/30 | 0.911 | 0.901 | 0.899 | 0.924 | 0.938 | 0.929 |
-| RecursiveNet | Synthetic, 527 samples | Stratified 70/30 | 0.785 | 0.808 | 0.823 | 0.747 | 0.877 | 0.867 |
-| SVM | Synthetic, 527 samples | Stratified 70/30 | 0.911 | 0.922 | 0.924 | 0.899 | 0.940 | 0.923 |
-| XGBoost | Synthetic, 527 samples | Stratified 70/30 | 0.899 | 0.889 | 0.886 | 0.911 | 0.951 | 0.935 |
+| HIKNet | Synthetic, 527 samples | Stratified 70/30 | 0.911 | 0.901 | 0.899 | 0.924 | 0.946 | 0.933 |
+| RecursiveNet | Synthetic, 527 samples | Stratified 70/30 | 0.848 | 0.857 | 0.861 | 0.835 | 0.917 | 0.910 |
+| SVM | Synthetic, 527 samples | Stratified 70/30 | 0.791 | 0.871 | 0.899 | 0.684 | 0.905 | 0.890 |
+| XGBoost | Synthetic, 527 samples | Stratified 70/30 | 0.892 | 0.897 | 0.899 | 0.886 | 0.933 | 0.892 |
 
 Confusion counts on the 158-example evaluation set:
 
 | Model | True impacts detected (TP) | False positives predicted as impacts (FP) | False positives correctly identified (TN) | Impacts missed (FN) |
 |---|---:|---:|---:|---:|
 | HIKNet | 73 | 8 | 71 | 6 |
-| RecursiveNet | 59 | 14 | 65 | 20 |
-| SVM | 71 | 6 | 73 | 8 |
-| XGBoost | 72 | 9 | 70 | 7 |
+| RecursiveNet | 66 | 11 | 68 | 13 |
+| SVM | 54 | 8 | 71 | 25 |
+| XGBoost | 70 | 8 | 71 | 9 |
 
-For this split, HIKNet and SVM have the highest accuracy at about 91.1%. SVM
-has the highest precision and specificity. XGBoost has the highest ROC-AUC
-and PR-AUC. RecursiveNet has lower scores in this run.
+For this split, HIKNet has the highest accuracy, sensitivity, ROC-AUC, and
+PR-AUC. XGBoost is close in accuracy (89.2%) and has ROC-AUC 0.933, but it
+does not exceed HIKNet overall. All three of HIKNet, SVM, and XGBoost have
+specificity 0.899. These findings describe only this one synthetic holdout.
 
 These are results on synthetic data, not the original Stanford recordings.
 The HIKNet accuracy reported in the paper (98.2%, as noted during this
 project) is not directly comparable to our result because the dataset and
-evaluation setup are different. We cannot conclude from this experiment that
-XGBoost outperforms the paper's models on the original data.
+evaluation setup are different. In this run, XGBoost was lower than HIKNet
+in accuracy and area-under-curve metrics. We cannot conclude from this
+experiment that XGBoost or any other model performs similarly on original
+Stanford recordings.
 
 ## Separate Wu 2017 SVM workflow
 
@@ -178,7 +220,7 @@ input.
 From the repository root:
 
 ```bash
-python -m scripts.run_final_comparison
+python -m scripts.run_final_comparison --synthetic-seed 42 --seed 0
 ```
 
 Optional arguments:
@@ -186,6 +228,25 @@ Optional arguments:
 ```bash
 python -m scripts.run_final_comparison --seed 0 --epochs 50 --validation-size 0.15
 ```
+
+Use `--synthetic-seed` to generate a fresh simulated dataset in memory. If it
+is omitted, the script loads `data/data.mat` and `data/labels.mat` instead.
+To load the saved seed-42 MATLAB dataset from `data/synthetic_seed42/` instead,
+pass `--saved-seed42`. This option cannot be combined with `--synthetic-seed`.
+Use `--output-suffix seed42_saved` to preserve the default comparison files and
+write `results/final_comparison_seed42_saved.csv` and
+`results/final_comparison_seed42_saved.json`. The saved JSON records the data
+source, seeds, and exact shared split indices.
+
+To generate the saved seed-42 dataset without replacing the seed-0 MATLAB
+files in `data/`, run:
+
+```powershell
+python -m scripts.make_mock_data --seed 42 --data-dir data/synthetic_seed42
+```
+
+The generated `.mat` files in that subdirectory are ignored by Git, like the
+top-level generated MATLAB files.
 
 The script writes:
 
@@ -199,8 +260,10 @@ The script writes:
 
 | Path | Purpose |
 |---|---|
-| `data/data.mat` | Synthetic kinematic recordings used by the final comparison |
-| `data/labels.mat` | Labels for the synthetic recordings |
+| `data/data.mat` | Seed-0 synthetic kinematic recordings for scripts that load local MATLAB data |
+| `data/labels.mat` | Labels for the seed-0 synthetic recordings |
+| `data/synthetic_seed42/data.mat` | Optional saved seed-42 synthetic recordings for the final comparison |
+| `data/synthetic_seed42/labels.mat` | Labels for the saved seed-42 recordings |
 | `data/wu2017_features.xlsx` | Separate Wu 2017 feature workbook |
 | `src/data.py` | Dataset loading, channel definitions, shape checks, and class counts |
 | `src/mock.py` | Synthetic signal and label generator |
@@ -242,10 +305,14 @@ The script writes:
 |---|---|
 | `results/final_comparison.csv` | Final four-model results table |
 | `results/final_comparison.json` | Detailed results and split metadata |
+| `results/final_comparison_seed42_saved.csv` | Comparison rerun using the saved seed-42 MATLAB dataset |
+| `results/final_comparison_seed42_saved.json` | Saved-dataset comparison metadata and exact split indices |
+| `results/hiknet_metrics.json` | Separate standalone HIKNet evaluation on the seed-0 local `.mat` dataset; not the final four-model run |
+| `results/hiknet_scores.npz` | Labels and scores from that standalone HIKNet evaluation |
 | `results/xgboost_metrics.json` | Earlier standalone XGBoost metrics |
 | `figures/` | Exploratory, tuning, ROC/PR, and XGBoost figures |
-| `docs/writeup.pdf` | Existing project report; verify it includes the latest comparison |
-| `docs/slides.pdf` | Existing project slides; verify they include the latest comparison |
+| `docs/writeup.pdf` | Two-page project report generated from the final comparison artifacts |
+| `docs/slides.pdf` | Presentation file to be prepared and updated by the project team |
 | `resources/Guidelines and Instructions_Mini Project Assignment.pdf` | Assignment instructions |
 | `resources/wu2017/wu2017.pdf` | Wu 2017 paper |
 | `resources/wu2017/MOESM1.doc` | Wu supplementary material |
@@ -260,7 +327,8 @@ The script writes:
 - The synthetic generator's signal patterns are assumptions and may not
   represent real mouthguard recordings.
 - The reported comparison uses one train/evaluation split and one seed.
+- The final comparison uses a new synthetic generator seed (42), but model
+  choices were developed using the same simulator; this is not independent
+  validation on real-world data.
 - HIKNet and RecursiveNet use raw signals, while SVM and XGBoost use
   engineered features, so their input representations differ.
-- The existing report and slides should be checked to make sure they reflect
-  the final results in `results/final_comparison.csv`.

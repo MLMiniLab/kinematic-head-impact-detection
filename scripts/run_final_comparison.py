@@ -10,6 +10,7 @@ from src.data import DATA_DIR, load_dataset
 from src.features import extract_features
 from src.hiknet import HIKNet
 from src.metrics import compute_metrics, format_metrics
+from src.mock import make_mock_dataset
 from src.preprocess import standardize, train_eval_split
 from src.recursivenet import RecursiveNet
 from src.train import evaluate, fit, set_seed
@@ -32,12 +33,45 @@ def main() -> None:
         description="Compare all four models on one stratified 70/30 dataset split."
     )
     parser.add_argument("--data-dir", default=DATA_DIR)
+    parser.add_argument(
+        "--synthetic-seed",
+        type=int,
+        default=None,
+        help="Generate a fresh synthetic dataset in memory using this seed.",
+    )
+    parser.add_argument(
+        "--saved-seed42",
+        action="store_true",
+        help="Load the saved seed-42 dataset from data/synthetic_seed42.",
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--validation-size", type=float, default=0.15)
+    parser.add_argument(
+        "--output-suffix",
+        default="",
+        help="Append a suffix to the final_comparison output filenames.",
+    )
     args = parser.parse_args()
 
-    X, y = load_dataset(args.data_dir)
+    if args.synthetic_seed is not None and args.saved_seed42:
+        parser.error("--synthetic-seed and --saved-seed42 cannot be used together")
+    if any(not (char.isalnum() or char in "-_") for char in args.output_suffix):
+        parser.error("--output-suffix may contain only letters, numbers, '_' and '-'")
+
+    if args.saved_seed42:
+        saved_data_dir = Path(args.data_dir) / "synthetic_seed42"
+        X, y = load_dataset(saved_data_dir)
+        synthetic_seed = 42
+        data_source = str(saved_data_dir)
+    elif args.synthetic_seed is None:
+        X, y = load_dataset(args.data_dir)
+        synthetic_seed = None
+        data_source = "data.mat and labels.mat"
+    else:
+        X, y = make_mock_dataset(seed=args.synthetic_seed)
+        synthetic_seed = args.synthetic_seed
+        data_source = f"synthetic generator seed {args.synthetic_seed}"
     indices = np.arange(len(y))
     train_idx, y_train, eval_idx, y_eval = train_eval_split(
         indices, y, eval_size=0.3, seed=args.seed
@@ -76,6 +110,7 @@ def main() -> None:
         metrics, _ = evaluate(model, X_eval, y_eval)
         results[model_name] = {
             "dataset": "synthetic 527-sample kinematic dataset",
+            "data_source": data_source,
             "split": "stratified 70/30 holdout",
             "train_samples": int(len(train_idx)),
             "evaluation_samples": int(len(eval_idx)),
@@ -92,6 +127,7 @@ def main() -> None:
     svm_scores = svm.decision_function(F_eval)
     results["SVM"] = {
         "dataset": "synthetic 527-sample kinematic dataset",
+        "data_source": data_source,
         "split": "stratified 70/30 holdout",
         "train_samples": int(len(train_idx)),
         "evaluation_samples": int(len(eval_idx)),
@@ -104,6 +140,7 @@ def main() -> None:
     xgboost_scores = xgboost.predict_proba(F_eval)[:, 1]
     results["XGBoost"] = {
         "dataset": "synthetic 527-sample kinematic dataset",
+        "data_source": data_source,
         "split": "stratified 70/30 holdout",
         "train_samples": int(len(train_idx)),
         "evaluation_samples": int(len(eval_idx)),
@@ -116,6 +153,8 @@ def main() -> None:
     RESULTS_DIR.mkdir(exist_ok=True)
     output = {
         "seed": args.seed,
+        "synthetic_seed": synthetic_seed,
+        "data_source": data_source,
         "dataset_samples": int(len(y)),
         "dataset_shape": list(X.shape[1:]),
         "class_counts": {
@@ -127,16 +166,18 @@ def main() -> None:
         "shared_tabular_features": feature_names,
         "models": results,
     }
-    json_path = RESULTS_DIR / "final_comparison.json"
+    suffix = f"_{args.output_suffix}" if args.output_suffix else ""
+    json_path = RESULTS_DIR / f"final_comparison{suffix}.json"
     json_path.write_text(json.dumps(output, indent=2))
 
-    csv_path = RESULTS_DIR / "final_comparison.csv"
+    csv_path = RESULTS_DIR / f"final_comparison{suffix}.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as csv_file:
         writer = csv.DictWriter(
             csv_file,
             fieldnames=(
                 "model",
                 "dataset",
+                "data_source",
                 "split",
                 "train_samples",
                 "evaluation_samples",
@@ -149,6 +190,7 @@ def main() -> None:
                 {
                     "model": model_name,
                     "dataset": result["dataset"],
+                    "data_source": result["data_source"],
                     "split": result["split"],
                     "train_samples": result["train_samples"],
                     "evaluation_samples": result["evaluation_samples"],

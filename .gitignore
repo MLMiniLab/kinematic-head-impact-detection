@@ -9,6 +9,7 @@ resources/*.xlsx
 __MACOSX/
 
 data/*.mat
+data/synthetic_seed42/*.mat
 *.npy
 *.h5
 *.hdf5

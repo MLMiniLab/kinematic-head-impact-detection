@@ -20,15 +20,24 @@ def main():
     parser.add_argument("--data-dir", default=DATA_DIR)
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--validation-size", type=float, default=0.15)
     args = parser.parse_args()
 
     X, y = load_dataset(args.data_dir)
-    X_train, y_train, X_eval, y_eval = train_eval_split(standardize(X), y, seed=args.seed)
-    print(f"train {len(y_train)}  eval {len(y_eval)}")
+    X_train, y_train, X_eval, y_eval = train_eval_split(
+        standardize(X), y, seed=args.seed
+    )
+    X_fit, y_fit, X_val, y_val = train_eval_split(
+        X_train, y_train, eval_size=args.validation_size, seed=args.seed + 1
+    )
+    print(
+        f"fit {len(y_fit)}  validation {len(y_val)}  "
+        f"test {len(y_eval)}"
+    )
 
     CKPT_DIR.mkdir(exist_ok=True)
     ckpt = CKPT_DIR / "hiknet.pt"
-    model, info = fit(HIKNet(), X_train, y_train, X_eval, y_eval, epochs=args.epochs,
+    model, info = fit(HIKNet(), X_fit, y_fit, X_val, y_val, epochs=args.epochs,
                       seed=args.seed, checkpoint=ckpt, verbose=True)
     m, scores = evaluate(model, X_eval, y_eval)
     print(f"\neval set (n={len(y_eval)}), best epoch {info['best_epoch']}")
